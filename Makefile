@@ -4,13 +4,16 @@
 #   make        build the ROM          -> build/morseboy1.gbc
 #   make test   smoke-test in mGBA headless
 #   make web    run the mGBA WASM web emulator (serves build/ + web/)
+#   make site   assemble the deployable static site -> web/_site/
 #   make clean  remove build artifacts
 
-NAME     := morseboy1
-BUILD    := build
-ROM_RAW  := $(BUILD)/$(NAME).raw
-ROM      := $(BUILD)/$(NAME).gbc
-TOOLS    := tools
+NAME      := morseboy1
+BUILD     := build
+ROM_RAW   := $(BUILD)/$(NAME).raw
+ROM       := $(BUILD)/$(NAME).gbc
+TOOLS     := tools
+SITE      := web/_site
+MGBA_DIST := node_modules/@thenick775/mgba-wasm/dist
 
 RGBASM   := rgbasm
 RGBLINK  := rgblink
@@ -21,7 +24,7 @@ ASMFLAGS := -i include
 ASM      := src/main.asm
 OBJ      := $(BUILD)/main.o
 
-.PHONY: all rom test web clean
+.PHONY: all rom test web site clean
 
 all: rom
 
@@ -55,5 +58,13 @@ test: rom
 web: rom
 	node web/server.mjs
 
+site: rom
+	mkdir -p $(SITE)
+	cp web/index.html $(SITE)/index.html
+	cp web/_headers $(SITE)/_headers
+	cp $(MGBA_DIST)/mgba.js $(MGBA_DIST)/mgba.wasm $(SITE)/
+	cp $(ROM) $(SITE)/morseboy1.gbc
+	@echo "static site ready in $(SITE)/ (COOP/COEP via _headers — see README)"
+
 clean:
-	rm -rf $(BUILD)
+	rm -rf $(BUILD) $(SITE)

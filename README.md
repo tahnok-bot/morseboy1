@@ -99,16 +99,64 @@ tools/mgba-headless -C model=DMG build/morseboy1.gbc
 
 ## Web emulator
 
-`web/server.mjs` is a dependency-free Node server. It serves:
+The whole preview is static content — one HTML page, the
+`@thenick775/mgba-wasm` core (v2.6.0), and the ROM. There is no server logic.
+There is one hard requirement though: the page must be served with
 
-- `/` — `web/index.html`
-- `/mgba.js`, `/mgba.wasm` — the `@thenick775/mgba-wasm` core (v2.6.0)
-- `/morseboy1.gbc` — the freshly built ROM
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
 
-Every response carries `Cross-Origin-Opener-Policy: same-origin` and
-`Cross-Origin-Embedder-Policy: require-corp` — required because the WASM core
-uses Web Threads. The page fetches the ROM, writes it to the emulator's
-virtual FS at `/data/games/`, and calls `loadGame()`.
+because mGBA-wasm calls `new WebAssembly.Memory({ shared: true })` (Web
+Threads), which only exists on *cross-origin isolated* pages. Without those
+two headers the emulator throws on startup — `file://`, `python -m
+http.server`, and any header-less static host all fail this way. The page
+itself fetches `/morseboy1.gbc`, writes it to the emulator's virtual FS at
+`/data/games/`, and calls `loadGame()`.
+
+### Local development
+
+`make web` runs `web/server.mjs`, a dependency-free Node server that serves
+the built ROM plus the WASM core with the required COOP/COEP headers.
+This is the fastest way to iterate.
+
+### Static deployment (git-pages / Codeberg Pages)
+
+`make site` assembles a deployable static site in `web/_site/`:
+
+```
+web/_site/
+  index.html      the page
+  mgba.js         mGBA WASM glue (from node_modules)
+  mgba.wasm       mGBA WASM core (~1.9 MB)
+  morseboy1.gbc   the built ROM
+  _headers        COOP/COEP for every response (Netlify-style, parsed by git-pages)
+```
+
+Deploy it to any [git-pages](https://git-pages.org) server — Codeberg's
+`codeberg.page` or one you run yourself in front of this Gitea instance:
+
+- **Gitea Actions** (this repo): `.gitea/workflows/pages.yaml` builds the
+  ROM, runs the headless smoke test, and uploads the site with `git-pages-cli`
+  to `https://opencode-bot.pages.zoltanlabs.ca/` (hardcoded in the workflow's
+  `env:` block — the one place to change the URL). Set in the repo's Actions
+  settings: secret `PAGES_TOKEN` (a token the git-pages server can verify
+  against the forge, belonging to the account the subdomain maps to). Push
+  to `main`. Without `PAGES_TOKEN` the workflow only builds and uploads the
+  site as an artifact. If the subdomain has no TLS certificate yet, add
+  `--server pages.zoltanlabs.ca` to the CLI invocation (the CLI can't request
+  a first-time HTTPS publish on a bare site URL).
+- **Codeberg Pages** instead: push the site to the `pages` branch and add a
+  `git-pages` webhook, or use the [git-pages Forgejo/Gitea
+  action](https://codeberg.org/git-pages/action).
+- **Self-hosting git-pages**: add the two headers to the allowlist, since
+  custom headers are denied by default (`config.toml`):
+
+  ```toml
+  [limits]
+  allowed-custom-headers = ["Cross-Origin-Opener-Policy", "Cross-Origin-Embedder-Policy"]
+  ```
 
 ## Extending
 

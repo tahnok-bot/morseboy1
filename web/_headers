@@ -1,0 +1,7 @@
+# Netlify-style headers file, honored by git-pages (Codeberg Pages) and
+# similar static hosts. mGBA-wasm creates a WebAssembly.Memory with
+# shared:true (Web Threads), which only exists on cross-origin isolated
+# pages — without these headers the emulator fails to boot.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp

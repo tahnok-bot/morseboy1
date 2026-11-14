@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>morseboy1 — mGBA web emulator</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      background: #14161a;
+      color: #c8ccd4;
+      font: 14px/1.5 ui-monospace, "Cascadia Code", Menlo, monospace;
+    }
+    h1 { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: 0.08em; }
+    #frame {
+      padding: 14px;
+      border: 2px solid #2a2e36;
+      border-radius: 12px;
+      background: #0b0d10;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    }
+    canvas {
+      width: min(70vw, 480px);
+      height: auto;
+      aspect-ratio: 3 / 2;
+      image-rendering: pixelated;
+      border-radius: 4px;
+      display: block;
+    }
+    #status { color: #7d8592; min-height: 1.5em; }
+    #status.err { color: #e06c5e; }
+    .keys { color: #565e6b; font-size: 12px; text-align: center; }
+    kbd {
+      border: 1px solid #3a4048;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      padding: 0 5px;
+      font-size: 11px;
+      color: #9aa2ad;
+    }
+  </style>
+</head>
+<body>
+  <h1>MORSEBOY1</h1>
+  <div id="frame"><canvas id="canvas" width="240" height="160"></canvas></div>
+  <div id="status">loading emulator core…</div>
+  <div class="keys">
+    <kbd>Z</kbd>/<kbd>X</kbd> B/A · <kbd>Enter</kbd> Start · <kbd>Shift</kbd> Select ·
+    arrows: d-pad · <kbd>P</kbd> pause
+  </div>
+
+  <script type="module">
+    import mGBA from '/mgba.js';
+
+    const canvas = document.getElementById('canvas');
+    const status = document.getElementById('status');
+    const say = (msg, err = false) => {
+      status.textContent = msg;
+      status.classList.toggle('err', err);
+    };
+
+    try {
+      const Module = await mGBA({ canvas });
+      say('filesystem init…');
+      await Module.FSInit();
+
+      const version = `${Module.version.projectName} ${Module.version.projectVersion}`;
+      console.log('core:', version);
+
+      // Put the ROM inside the emulator's virtual filesystem.
+      say('fetching ROM…');
+      const res = await fetch('/morseboy1.gbc');
+      if (!res.ok) throw new Error(`ROM fetch failed (${res.status}) — run "make" first`);
+      const rom = new Uint8Array(await res.arrayBuffer());
+      const romPath = '/data/games/morseboy1.gbc';
+      Module.FS.mkdirTree('/data/games');
+      Module.FS.writeFile(romPath, rom);
+
+      say('booting…');
+      const ok = Module.loadGame(romPath);
+      if (!ok) throw new Error('loadGame failed');
+      say(`running on ${version} — HELLO GBC! demo (CGB: cycling background palette)`);
+
+      // Keyboard → buttons
+      const keys = {
+        KeyZ: 'B', KeyX: 'A', KeyEnter: 'Start', ShiftLeft: 'Select', ShiftRight: 'Select',
+        ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+      };
+      for (const [code, button] of Object.entries(keys)) {
+        addEventListener('keydown', (e) => {
+          if (e.code === 'KeyP') { Module.pauseGame(); return; }
+          if (keys[e.code] && !e.repeat) Module.buttonPress(keys[e.code]);
+        });
+        addEventListener('keyup', (e) => {
+          if (keys[e.code]) Module.buttonUnpress(keys[e.code]);
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      say(`error: ${err.message}`, true);
+    }
+  </script>
+</body>
+</html>

@@ -92,12 +92,40 @@ SECTION "reset", ROM0
 SECTION "main", ROM0
 
 Init:
+    ; -- The boot ROM was displaying its logo with the LCD ON. Turn the LCD
+    ;    off first: VRAM writes are only reliable while the PPU is not
+    ;    rendering (writes during LCD busy periods are silently lost). --
+    ld a, $00
+    ld [rLCDC], a
+
     ; -- DMG: classic green palette (what the boot ROM would have set) --
     ld a, $E0
     ld [rBGP], a
 
+    ; -- The boot ROM leaves the scroll registers mid-logo-animation; reset
+    ;    so the background starts at map row 0 / column 0. --
+    ld a, $00
+    ld [rSCY], a
+    ld [rSCX], a
+
+    ; -- Clear the whole BG map: the boot logo leaves map entries in rows 8-10
+    ;    (and occupies tile 8), which would otherwise render as junk glyphs.
+    ;    NB: A is reloaded every iteration — the zero-test below (ld a, b / or c)
+    ;    clobbers A, and a plain "ld [hl], a" loop would write that clobbered
+    ;    value instead of the fill byte. --
+    ld hl, $9800
+    ld bc, (18 * 32)
+ClearMap:
+    ld a, $00
+    ld [hl], a
+    inc hl
+    dec bc
+    ld a, b
+    or a, c
+    jr nz, ClearMap
+
     ; -- Copy tile data to VRAM (tile 0 = blank, 1..8 = glyphs) --
-    copy_dir tiles, TILEBLOCK0, (N_TILES * 8)
+    copy_dir tiles, TILEBLOCK0, (N_TILES * 16)
 
     ; -- Copy the text row into the background map (row 4, x=5..14) --
     copy_dir text_row, ($9800 + (4 * 32) + 5), 10
@@ -120,16 +148,38 @@ FrameLoop:
 ; -----------------------------------------------------------------------------
 SECTION "data", ROM0
 
+; 8x8 tiles, 16 bytes per tile, 2 bytes per ROW (low bitplane, high
+; bitplane), row 0 first, bit 7 of each byte = LEFTMOST pixel. This is the
+; layout the installed PyBoy (v2.9.0) DMG renderer fetches — its dot fetcher
+; reads two bitplane bytes per row (core/lcd.py `_dot_tiledat_addr`: tile
+; stride 0x10, row stride 2) and decodes pixel = lower | (upper << 1), so
+; 1-bit art is stored with each row byte duplicated (identical bitplanes;
+; lit pixels decode to index 3, which BGP=$E0 maps to the brightest shade).
+; The PyBoy DMG boot ROM does the same doubling with its logo.
+;
+; CAVEAT: authentic DMG hardware reads 8 bytes per tile (one byte per row),
+; not 16. These VRAM bytes are the PyBoy-verified layout; on real DMG
+; hardware or an emulator with a standards-conforming DMG core (e.g. mGBA)
+; the same tiles would render stretched garbage. tools/screenshot.py
+; verifies the actual pixels against this layout.
 tiles:
-    DS 8, 0                             ; 0: blank (space)
-    db $88,$88,$88,$F8,$88,$88,$88,$00  ; 1: H
-    db $F8,$80,$80,$F0,$80,$80,$F8,$00  ; 2: E
-    db $80,$80,$80,$80,$80,$80,$F8,$00  ; 3: L
-    db $70,$88,$88,$88,$88,$88,$70,$00  ; 4: O
-    db $70,$80,$80,$B8,$88,$88,$70,$00  ; 5: G
-    db $F0,$88,$88,$F0,$88,$88,$F0,$00  ; 6: B
-    db $70,$80,$80,$80,$80,$80,$70,$00  ; 7: C
-    db $20,$20,$20,$20,$20,$00,$20,$00  ; 8: !
+    DS 16, 0                            ; 0: blank (space)
+    db $88,$88,$88,$88,$F8,$F8,$88,$88  ; 1: H
+    db $88,$88,$88,$88,$00,$00,$00,$00
+    db $F8,$F8,$80,$80,$80,$80,$F0,$F0  ; 2: E
+    db $80,$80,$80,$80,$F8,$F8,$00,$00
+    db $80,$80,$80,$80,$80,$80,$F8,$F8  ; 3: L
+    db $00,$00,$00,$00,$00,$00,$00,$00
+    db $70,$70,$88,$88,$88,$88,$88,$88  ; 4: O
+    db $88,$88,$70,$70,$00,$00,$00,$00
+    db $70,$70,$80,$80,$80,$80,$F8,$F8  ; 5: G
+    db $88,$88,$88,$88,$70,$70,$00,$00
+    db $F0,$F0,$80,$80,$88,$88,$F8,$F8  ; 6: B
+    db $88,$88,$88,$88,$F0,$F0,$00,$00
+    db $70,$70,$80,$80,$80,$80,$80,$80  ; 7: C
+    db $80,$80,$70,$70,$00,$00,$00,$00
+    db $20,$20,$20,$20,$20,$20,$00,$00  ; 8: !
+    db $20,$20,$00,$00,$00,$00,$00,$00
 
 text_row:                               ; H E L L O   G B C !
     db 1, 2, 3, 3, 4, 0, 5, 6, 7, 8

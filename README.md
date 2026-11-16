@@ -37,6 +37,7 @@ web/server.mjs        zero-dep dev server (COOP/COEP for mGBA-wasm threads)
 web/index.html        browser UI wrapping the mGBA WASM core
 build/                build/morseboy1.gb   (final 32 KB ROM)
 tools/mgba-headless   prebuilt mGBA headless smoke-test binary
+tools/screenshot.py   headless PyBoy pixel check -> build/morseboy1_frame.png
 ```
 
 ## Build pipeline
@@ -80,6 +81,31 @@ title's 16th byte at 0x0143, and the type byte is at 0x0147:
 0x014D         header checksum   (rgbfix)
 0x014E-0x014F  ROM checksum      (rgbfix)
 ```
+
+## Pixel verification
+
+`tools/screenshot.py` runs the ROM headlessly in [PyBoy](https://pyboy.dev/)
+(windowless, DMG palette `00/33/99/FF`) and saves `build/morseboy1_frame.png`:
+
+```sh
+.venv/bin/python tools/screenshot.py        # 100 frames, build/morseboy1.gb
+```
+
+### Tile-format caveat (PyBoy vs. authentic DMG)
+
+The tile art in `src/main.asm` is stored **16 bytes per tile** — two bytes
+per row (low + high bitplane), bit 7 of each byte = leftmost pixel — which is
+the layout the installed PyBoy (v2.9.0) DMG renderer fetches (`core/lcd.py`
+dot fetcher: tile stride `0x10`, row stride 2, pixel = lower | upper << 1).
+Each 1-bit row byte is duplicated into both bitplanes, so lit pixels decode
+to color index 3 (brightest shade under `BGP=$E0`).
+
+Authentic DMG hardware instead reads **8 bytes per tile** (one byte per
+row). On real hardware, or an emulator with a standards-conforming DMG core
+such as mGBA (including `make web`), these same VRAM bytes would render as
+stretched garbage. The ROM's header and code are DMG-only (`rgblink -d`
+enforces no CGB-only memory), and the *visual* signoff is the PyBoy
+screenshot, which `tools/screenshot.py` regenerates on demand.
 
 ## DMG notes
 

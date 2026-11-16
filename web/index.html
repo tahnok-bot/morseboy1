@@ -76,17 +76,17 @@
 
       // Put the ROM inside the emulator's virtual filesystem.
       say('fetching ROM…');
-      const res = await fetch('/morseboy1.gbc');
+      const res = await fetch('/morseboy1.gb');
       if (!res.ok) throw new Error(`ROM fetch failed (${res.status}) — run "make" first`);
       const rom = new Uint8Array(await res.arrayBuffer());
-      const romPath = '/data/games/morseboy1.gbc';
+      const romPath = '/data/games/morseboy1.gb';
       Module.FS.mkdirTree('/data/games');
       Module.FS.writeFile(romPath, rom);
 
       say('booting…');
       const ok = Module.loadGame(romPath);
       if (!ok) throw new Error('loadGame failed');
-      say(`running on ${version} — HELLO GBC! demo (CGB: cycling background palette)`);
+      say(`running on ${version} — HELLO GBC! demo (DMG only, classic $E0 green)`);
 
       // Keyboard → buttons
       const keys = {

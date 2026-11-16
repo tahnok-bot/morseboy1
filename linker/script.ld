@@ -11,8 +11,4 @@ ROM0
     ORG $0150
     "reset"               ; 0x0150: entry code
     "main"                ; code
-    "data"                ; tile art, text row, palette cycle
-
-WRAM0
-    ORG $C000
-    "bss"                 ; zero-initialized variables
+    "data"                ; tile art, text row

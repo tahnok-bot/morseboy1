@@ -1,24 +1,25 @@
 # morseboy1
 
-A tiny **Game Boy / Game Boy Color** starter project: single-bank 32 KB ROM,
-written in SM83 assembly with [RGBDS](https://github.com/gbdev/rgbds), smoke-tested
-with [mGBA headless](https://mgba.io/) natively and in the browser via
+A tiny **Game Boy (DMG)** starter project: single-bank 32 KB ROM, written in
+SM83 assembly with [RGBDS](https://github.com/gbdev/rgbds), smoke-tested with
+[mGBA headless](https://mgba.io/) natively and in the browser via
 [mGBA WASM](https://github.com/thenick775/mgba/tree/feature/wasm).
 
-The demo renders `HELLO GBC!` from BG tiles and, on CGB, cycles the background
-color through a palette every 8 frames (on DMG it uses the classic `$E0` green).
+The ROM targets DMG only (CGB flag `$00` in the header, no CGB/palette code)
+and renders `HELLO GBC!` from BG tiles in the classic `$E0` green palette.
 
 ## Quick start
 
 Prereqs (all installed on this machine):
 
-- `make`, and RGBDS 0.9.x (`rgbasm` / `rgblink` / `rgbfix`)
+- `make`, and RGBDS ≥ 0.9.4 (`rgbasm` / `rgblink` / `rgbfix`; this machine has 1.0.4)
 - `node` (v18+), for the web emulator
 - `tools/mgba-headless` (prebuilt mGBA headless binary, already in `tools/`)
 
 ```sh
-make            # build -> build/morseboy1.gbc
+make            # build -> build/morseboy1.gb
 make test       # run the ROM 2 s in mGBA headless (exit 124 = ran fine)
+make check      # strict diagnostics + header assertion + smoke test
 make web        # build + serve the mGBA WASM web emulator on :8080
 make clean      # remove build/
 ```
@@ -29,21 +30,25 @@ Keys: `Z`/`X` = B/A, `Enter` = Start, `Shift` = Select, arrows = d-pad, `P` = pa
 ## Layout
 
 ```
-src/main.asm          the whole ROM (boot, header, reset, code, data, bss)
+src/main.asm          the whole ROM (boot, header, reset, code, data)
 include/hardware.inc  GB devkit hardware registers (v6.0.0)
 linker/script.ld      RGBDS 0.9.x linker script (ROM0/WRAM0 placement)
 web/server.mjs        zero-dep dev server (COOP/COEP for mGBA-wasm threads)
 web/index.html        browser UI wrapping the mGBA WASM core
-build/                build/morseboy1.gbc  (final 32 KB ROM)
+build/                build/morseboy1.gb   (final 32 KB ROM)
 tools/mgba-headless   prebuilt mGBA headless smoke-test binary
 ```
 
 ## Build pipeline
 
 1. `rgbasm -i include` — assemble `src/main.asm` -> `build/main.o`
-2. `rgblink -t -l linker/script.ld` — link + place sections -> `build/morseboy1.raw`
-3. `rgbfix -v -p 0` — pad to 32 KB, write the Nintendo logo (0x0104), compute the
-   header checksum (0x014D) and ROM checksum (0x014E-F) -> `build/morseboy1.gbc`
+   (with `-Weverything -Wtruncation=1`; the build fails on any warning)
+2. `rgblink -Weverything -Wtruncation=1 -d -t -l linker/script.ld` — link +
+   place sections in **DMG mode** (strict: fails on any warning,
+   guarantees no CGB-only memory is used) -> `build/morseboy1.raw`
+3. `rgbfix -Weverything -v -m ROM -p 0` — pad to 32 KB, write the Nintendo logo (0x0104),
+   compute the header checksum (0x014D) and ROM checksum (0x014E-F), and pin the
+   cartridge type to ROM-only -> `build/morseboy1.gb`
 
 ## ROM map
 
@@ -63,7 +68,7 @@ title's 16th byte at 0x0143, and the type byte is at 0x0147:
 ```
 0x0134-0x0143  title (16 B; last byte = CGB flag)
 0x013F-0x0142  game ID ("MB01")
-0x0143         CGB flag: $80 = DMG+CGB, $C0 = CGB only
+0x0143         CGB flag: $00 = DMG only (this ROM)
 0x0144-0x0145  new licensee code ($33 $80)
 0x0146         SGB flag
 0x0147         cartridge type ($00 = ROM only)
@@ -76,23 +81,13 @@ title's 16th byte at 0x0143, and the type byte is at 0x0147:
 0x014E-0x014F  ROM checksum      (rgbfix)
 ```
 
-mGBA auto-detects the model from `cart->cgb & 0x80` (0x0143): with `$80` it
-emulates a CGB, so the ROM runs in color. To force DMG mode (to test the
-monochrome path):
+## DMG notes
 
-```sh
-tools/mgba-headless -C model=DMG build/morseboy1.gbc
-```
-
-## CGB palette notes
-
-- CGB detection at runtime: write `0` to `KEY1` ($FF4D), read back — `$FE` on
-  CGB, `$7E` on DMG.
-- Palettes are set through the indirect `BCP`/`OCP` registers:
-  `BCPS` $FF68, `BCPD` $FF69, `OCPS` $FF6A, `OCPD` $FF6B
-  (palette number * 2 in `BCPS`/`OCPS`, 16-bit color as two `BCPD`/`OCPD`
-  writes, low byte first). 16-bit color: 5 bits each, blue/green/red.
-- DMG: the background palette is just `BGP` ($FF47), e.g. `$E0`.
+- The ROM is DMG-only: CGB flag `$00` at 0x0143, and the code uses no CGB
+  registers (no `KEY1` detection, no `BCP`/`OCP` palette writes, no VRAM
+  bank 1). `rgblink -d` in the build enforces this.
+- The background palette is just `BGP` ($FF47); the ROM writes the classic
+  `$E0` green.
 - VBlank wait: poll `STAT` and mask **bit 3 ($08)** — the V-Blank flag.
   (`hardware.inc`'s `STAT_*` symbols are *bit-field encodings*, not register
   masks, so they can't be used directly as masks.)
@@ -112,7 +107,7 @@ because mGBA-wasm calls `new WebAssembly.Memory({ shared: true })` (Web
 Threads), which only exists on *cross-origin isolated* pages. Without those
 two headers the emulator throws on startup — `file://`, `python -m
 http.server`, and any header-less static host all fail this way. The page
-itself fetches `/morseboy1.gbc`, writes it to the emulator's virtual FS at
+itself fetches `/morseboy1.gb`, writes it to the emulator's virtual FS at
 `/data/games/`, and calls `loadGame()`.
 
 ### Local development
@@ -121,47 +116,10 @@ itself fetches `/morseboy1.gbc`, writes it to the emulator's virtual FS at
 the built ROM plus the WASM core with the required COOP/COEP headers.
 This is the fastest way to iterate.
 
-### Static deployment (git-pages / Codeberg Pages)
-
-`make site` assembles a deployable static site in `web/_site/`:
-
-```
-web/_site/
-  index.html      the page
-  mgba.js         mGBA WASM glue (from node_modules)
-  mgba.wasm       mGBA WASM core (~1.9 MB)
-  morseboy1.gbc   the built ROM
-  _headers        COOP/COEP for every response (Netlify-style, parsed by git-pages)
-```
-
-Deploy it to any [git-pages](https://git-pages.org) server — Codeberg's
-`codeberg.page` or one you run yourself in front of this Gitea instance:
-
-- **Gitea Actions** (this repo): `.gitea/workflows/pages.yaml` builds the
-  ROM, runs the headless smoke test, and uploads the site with `git-pages-cli`
-  to `https://opencode-bot.pages.zoltanlabs.ca/` (hardcoded in the workflow's
-  `env:` block — the one place to change the URL). Set in the repo's Actions
-  settings: secret `PAGES_TOKEN` (a token the git-pages server can verify
-  against the forge, belonging to the account the subdomain maps to). Push
-  to `main`. Without `PAGES_TOKEN` the workflow only builds and uploads the
-  site as an artifact. If the subdomain has no TLS certificate yet, add
-  `--server pages.zoltanlabs.ca` to the CLI invocation (the CLI can't request
-  a first-time HTTPS publish on a bare site URL).
-- **Codeberg Pages** instead: push the site to the `pages` branch and add a
-  `git-pages` webhook, or use the [git-pages Forgejo/Gitea
-  action](https://codeberg.org/git-pages/action).
-- **Self-hosting git-pages**: add the two headers to the allowlist, since
-  custom headers are denied by default (`config.toml`):
-
-  ```toml
-  [limits]
-  allowed-custom-headers = ["Cross-Origin-Opener-Policy", "Cross-Origin-Embedder-Policy"]
-  ```
-
 ## Extending
 
 - Add a bank: bump `0x0148`, add `ROMX` placement in `linker/script.ld`, and
   switch banks via `$FF00` (requires an MBC cartridge type at `0x0147`).
-- Sprites: OAM starts at $FE00; OBJ palettes 8-15 via `OCP` on CGB.
+- Sprites: OAM starts at $FE00; OBJ colors come from `OBP0`/`OBP1` ($FF48/$FF49).
 - Audio: NR channels at $FF10-$FF13 (DMG+), or the GBA-style APU is not
   available — keep it classic.

@@ -35,7 +35,7 @@ const ROUTES = {
   '/mgba.js': 'node_modules/@thenick775/mgba-wasm/dist/mgba.js',
   '/mgba.wasm': 'node_modules/@thenick775/mgba-wasm/dist/mgba.wasm',
   '/mgba.wasm.map': 'node_modules/@thenick775/mgba-wasm/dist/mgba.wasm.map',
-  '/morseboy1.gbc': 'build/morseboy1.gbc',
+  '/morseboy1.gb': 'build/morseboy1.gb',
 };
 
 const server = createServer(async (req, res) => {
@@ -71,6 +71,6 @@ const server = createServer(async (req, res) => {
 
 server.listen(port, () => {
   console.log(`morseboy1 web emulator: http://localhost:${port}`);
-  console.log('  ROM:  /morseboy1.gbc   (build with "make" first)');
+  console.log('  ROM:  /morseboy1.gb   (build with "make" first)');
   console.log('  Note: needs COOP/COEP — open this origin, not a file:// URL');
 });

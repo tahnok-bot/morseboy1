@@ -1,0 +1,29 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "iconPath": "assets/icon.svg",
+  "scripts": [
+    {
+      "name": "Web (mGBA WASM)",
+      "command": "make web",
+      "icon": "play",
+      "stopOnSettle": true,
+      "previewUrl": "http://localhost:8080",
+      "autoOpenPreview": true
+    },
+    {
+      "name": "Build ROM",
+      "command": "make rom",
+      "icon": "build"
+    },
+    {
+      "name": "Screenshot (PyBoy)",
+      "command": "make screenshot",
+      "icon": "debug"
+    },
+    {
+      "name": "Upload Release (Gitea)",
+      "command": "tools/release.sh",
+      "icon": "configure"
+    }
+  ]
+}

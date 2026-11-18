@@ -141,12 +141,13 @@
   <div class="pills" id="pills">
     <button type="button" data-btn="Select">Select</button>
     <button type="button" data-btn="Start">Start</button>
-    <button type="button" id="btn-pause">Pause</button>
+    <button type="button" id="btn-pause" data-action="pause">Pause</button>
+    <button type="button" id="btn-reset" data-action="reset">Reset</button>
   </div>
 
   <div class="keys">
     <kbd>Z</kbd>/<kbd>X</kbd> B/A · <kbd>Enter</kbd> Start · <kbd>Shift</kbd> Select ·
-    arrows: d-pad · <kbd>P</kbd> pause — or tap the pad below
+    arrows: d-pad · <kbd>P</kbd> pause · <kbd>R</kbd> reset — or tap the pad below
   </div>
 
   <script type="module">
@@ -164,6 +165,13 @@
       say('filesystem init…');
       await Module.FSInit();
 
+      // mGBA persists an auto save state to IndexedDB every 30 s and
+      // restores it on the next load (both on by default) — that's what
+      // made every reload "resume" instead of restart. This ROM keeps no
+      // saves of its own, so disable the feature and clear stale state.
+      Module.setCoreSettings({ autoSaveStateEnable: false, restoreAutoSaveStateOnLoad: false });
+      try { Module.FS.unlink('/autosave/morseboy1_auto.ss'); } catch { /* first run */ }
+
       const version = `${Module.version.projectName} ${Module.version.projectVersion}`;
       console.log('core:', version);
 
@@ -179,7 +187,33 @@
       say('booting…');
       const ok = Module.loadGame(romPath);
       if (!ok) throw new Error('loadGame failed');
-      say(`running on ${version} — HELLO GBC! demo (DMG only, classic $E0 green)`);
+      const runningMsg = `running on ${version} — HELLO GBC! demo (DMG only, classic $E0 green)`;
+      say(runningMsg);
+
+      // Pause is a toggle (P / pill). Pause used to have no resume —
+      // pressing it froze the screen until a full page reload.
+      let paused = false;
+      const pausePill = document.getElementById('btn-pause');
+      const togglePause = () => {
+        paused = !paused;
+        if (paused) {
+          Module.pauseGame();
+          pausePill.textContent = 'Resume';
+          say('paused — press P or tap Resume');
+        } else {
+          Module.resumeGame();
+          pausePill.textContent = 'Pause';
+          say(runningMsg);
+        }
+      };
+      // Fresh boot without a page reload: re-runs the ROM from the start
+      // (auto save state is disabled, so nothing is restored).
+      const resetGame = () => {
+        if (paused) togglePause(); // don't reset into a paused frame
+        say('resetting — fresh ROM boot…');
+        Module.quickReload();
+        setTimeout(() => { if (!paused) say(runningMsg); }, 400);
+      };
 
       // Keyboard → buttons
       const keys = {
@@ -188,7 +222,8 @@
       };
       for (const [code, button] of Object.entries(keys)) {
         addEventListener('keydown', (e) => {
-          if (e.code === 'KeyP') { Module.pauseGame(); return; }
+          if (e.code === 'KeyP') { togglePause(); return; }
+          if (e.code === 'KeyR') { resetGame(); return; }
           if (keys[e.code] && !e.repeat) Module.buttonPress(keys[e.code]);
         });
         addEventListener('keyup', (e) => {
@@ -202,7 +237,8 @@
       for (const btn of document.querySelectorAll('#pad button, #pills button')) {
         const fire = (down) => {
           if (btn.dataset.btn) Module[down ? 'buttonPress' : 'buttonUnpress'](btn.dataset.btn);
-          else if (down) Module.pauseGame();  // Pause pill (no unpress)
+          else if (btn.dataset.action === 'pause' && down) togglePause();
+          else if (btn.dataset.action === 'reset' && down) resetGame();
         };
         btn.addEventListener('pointerdown', (e) => {
           e.preventDefault();

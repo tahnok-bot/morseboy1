@@ -62,6 +62,8 @@ static void draw_sos(void) {
     printf("s   o   s");
     gotoxy(4, 6);
     printf("... --- ...");
+    gotoxy(5, 8);
+    printf("morseboy1");
 }
 
 static void draw_alphabet(uint8_t idx) {
@@ -152,6 +154,7 @@ void main(void) {
     // start screen on the 20x18 character grid:
     //   row 5: "s   o   s"   (letters at columns 5, 9, 13)
     //   row 6: "... --- ..." (each 3-char code centered under its letter)
+    //   row 8: "morseboy1"   (title, centered)
     putchar(' ');
     draw_sos();
 

@@ -209,6 +209,11 @@ itself fetches `/morseboy1.gb`, writes it to the emulator's virtual FS at
 the built ROM plus the WASM core with the required COOP/COEP headers.
 This is the fastest way to iterate.
 
+The page works without a keyboard: an on-screen d-pad, A/B, Start/Select
+and Pause are mapped to the same mGBA button events as the keys, so it is
+usable from a phone (multi-touch holds work — e.g. key A with one finger
+while nudging the d-pad with another).
+
 ## Extending
 
 - **More source files**: just add `.c` files to `CSOURCES` in the Makefile —

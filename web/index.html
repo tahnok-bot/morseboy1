@@ -45,15 +45,108 @@
       font-size: 11px;
       color: #9aa2ad;
     }
+    /* On-screen controls (phones / no keyboard) */
+    .pad {
+      --u: clamp(44px, 13vw, 56px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 26px;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .pad button {
+      font: inherit;
+      color: #9aa2ad;
+      background: #1d2026;
+      border: 2px solid #2a2e36;
+      border-radius: 10px;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .pad button:active,
+    .pad button.down {
+      color: #e8ebef;
+      background: #262b33;
+      border-color: #c9a227;
+    }
+    .dpad {
+      display: grid;
+      grid-template-columns: repeat(3, var(--u));
+      grid-template-rows: repeat(3, var(--u));
+    }
+    .dpad .up    { grid-area: 1 / 2; border-radius: 10px 10px 2px 2px; }
+    .dpad .left  { grid-area: 2 / 1; border-radius: 10px 2px 2px 10px; }
+    .dpad .right { grid-area: 2 / 3; border-radius: 2px 10px 10px 2px; }
+    .dpad .down  { grid-area: 3 / 2; border-radius: 2px 2px 10px 10px; }
+    .dpad .core  { grid-area: 2 / 2; background: #171a1f; border-radius: 6px; }
+    .ab {
+      display: grid;
+      grid-template-columns: repeat(2, calc(var(--u) * 1.25));
+      grid-template-rows: repeat(2, calc(var(--u) * 1.25));
+      gap: 10px;
+    }
+    .ab .b { grid-area: 1 / 1; border-radius: 50%; font-weight: 700; }
+    .ab .a { grid-area: 2 / 2; border-radius: 50%; font-weight: 700; }
+    .pills {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 12px;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .pills button {
+      font: 12px/1 ui-monospace, Menlo, monospace;
+      color: #9aa2ad;
+      background: #1d2026;
+      border: 2px solid #2a2e36;
+      border-radius: 999px;
+      padding: 12px 18px;
+      touch-action: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      cursor: pointer;
+    }
+    .pills button:active,
+    .pills button.down {
+      color: #e8ebef;
+      background: #262b33;
+      border-color: #c9a227;
+    }
   </style>
 </head>
 <body>
   <h1>MORSEBOY1</h1>
   <div id="frame"><canvas id="canvas" width="240" height="160"></canvas></div>
   <div id="status">loading emulator core…</div>
+
+  <div class="pad" id="pad">
+    <div class="dpad">
+      <button type="button" class="up" data-btn="Up" aria-label="d-pad up">▲</button>
+      <button type="button" class="left" data-btn="Left" aria-label="d-pad left">◀</button>
+      <div class="core"></div>
+      <button type="button" class="right" data-btn="Right" aria-label="d-pad right">▶</button>
+      <button type="button" class="down" data-btn="Down" aria-label="d-pad down">▼</button>
+    </div>
+    <div class="ab">
+      <button type="button" class="b" data-btn="B" aria-label="B button">B</button>
+      <button type="button" class="a" data-btn="A" aria-label="A button">A</button>
+    </div>
+  </div>
+  <div class="pills" id="pills">
+    <button type="button" data-btn="Select">Select</button>
+    <button type="button" data-btn="Start">Start</button>
+    <button type="button" id="btn-pause">Pause</button>
+  </div>
+
   <div class="keys">
     <kbd>Z</kbd>/<kbd>X</kbd> B/A · <kbd>Enter</kbd> Start · <kbd>Shift</kbd> Select ·
-    arrows: d-pad · <kbd>P</kbd> pause
+    arrows: d-pad · <kbd>P</kbd> pause — or tap the pad below
   </div>
 
   <script type="module">
@@ -101,6 +194,33 @@
         addEventListener('keyup', (e) => {
           if (keys[e.code]) Module.buttonUnpress(keys[e.code]);
         });
+      }
+
+      // Touch / on-screen buttons: multi-touch safe (hold d-pad while
+      // keying A), pointer capture so a sliding finger can't leave a
+      // button stuck, and no long-press context menu.
+      for (const btn of document.querySelectorAll('#pad button, #pills button')) {
+        const fire = (down) => {
+          if (btn.dataset.btn) Module[down ? 'buttonPress' : 'buttonUnpress'](btn.dataset.btn);
+          else if (down) Module.pauseGame();  // Pause pill (no unpress)
+        };
+        btn.addEventListener('pointerdown', (e) => {
+          e.preventDefault();
+          try { btn.setPointerCapture(e.pointerId); } catch { /* no-op */ }
+          btn.classList.add('down');
+          fire(true);
+        });
+        const release = (e) => {
+          if (!btn.hasPointerCapture(e.pointerId)) return;
+          btn.releasePointerCapture(e.pointerId);
+          btn.classList.remove('down');
+          fire(false);
+        };
+        btn.addEventListener('pointerup', release);
+        btn.addEventListener('pointercancel', release);
+      }
+      for (const id of ['pad', 'pills']) {
+        document.getElementById(id).addEventListener('contextmenu', (e) => e.preventDefault());
       }
     } catch (err) {
       console.error(err);

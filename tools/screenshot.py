@@ -18,8 +18,10 @@ ROM_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("build/morseboy1.gb"
 OUT_PATH = Path(sys.argv[2]) if len(sys.argv) > 2 else ROM_PATH.with_name(ROM_PATH.stem + "_frame.png")
 FRAMES = int(sys.argv[3]) if len(sys.argv) > 3 else 100
 
-# DMG-only palette, same as pyboy_test.py.
-PALETTE = (0x000000, 0x333333, 0x999999, 0xFFFFFF)
+# DMG shade order, matching the ROM's BGP mapping: palette index 0 is the
+# brightest shade (DMG_WHITE = 0) and index 3 the darkest (DMG_BLACK = 3),
+# so frames show a bright background with dark glyphs, as on real hardware.
+PALETTE = (0xFFFFFF, 0x999999, 0x333333, 0x000000)
 
 pb = pyboy.PyBoy(
     str(ROM_PATH),

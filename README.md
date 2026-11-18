@@ -5,9 +5,11 @@ A tiny **Game Boy (DMG)** starter project: single-bank 32 KB ROM, written in
 smoke-tested with [mGBA headless](https://mgba.io/) natively and in the
 browser via [mGBA WASM](https://github.com/thenick775/mgba/tree/feature/wasm).
 
-The ROM targets DMG only (CGB flag `$00` in the header, no CGB/palette code)
-and prints `hi hi` centered on the background using GBDK's built-in 8x8
-console font (the stdio `printf` family).
+The ROM targets DMG only (CGB flag `$00` in the header, no CGB/palette code).
+The start screen shows `s o s` with the Morse code `... --- ...` beneath it,
+drawn with GBDK's built-in 8x8 console font (the stdio `printf` family).
+Holding the A button sounds a ~500 Hz square-wave Morse keyer tone; the
+tone lasts exactly as long as A is held (see [Sound](#sound)).
 
 ## Quick start
 
@@ -39,6 +41,7 @@ tools/mgba-headless   prebuilt mGBA headless smoke-test binary
 tools/fix_header.py   post-link DMG header completion (logo/title/checksums)
 tools/check_header.py strict DMG header validation (make check)
 tools/screenshot.py   headless PyBoy pixel capture -> build/morseboy1_frame.png
+tools/test_sound.py   headless PyBoy audio check (silence/tone/frequency)
 web/server.mjs        zero-dep dev server (COOP/COEP for mGBA-wasm threads)
 web/index.html        browser UI wrapping the mGBA WASM core
 build/                build/morseboy1.gb   (final 32 KB ROM)
@@ -103,16 +106,21 @@ The layout mGBA and rgbfix use — note the CGB flag is at 0x0143:
 ## Pixel verification
 
 `tools/screenshot.py` runs the ROM headlessly in [PyBoy](https://pyboy.dev/)
-(windowless, `cgb=False`, DMG shade palette `00/33/99/FF` mapped to
-`0x000000/0x333333/0x999999/0xFFFFFF`) and saves `build/morseboy1_frame.png`
-after 100 frames:
+(windowless, `cgb=False`) and saves `build/morseboy1_frame.png` after
+100 frames:
 
 ```sh
 .venv/bin/python tools/screenshot.py        # build/morseboy1.gb -> build/morseboy1_frame.png
 ```
 
-The expected frame is a blank field with the 5-glyph string `hi hi` at
-character row 8, columns 7-11 (column 9 is the space).
+The expected frame is a bright field with `s   o   s` at character row 5
+(letters at columns 5, 9, 13) and the Morse code `... --- ...` at row 6
+(centered under the letters).
+
+The palette maps DMG shades in hardware order — index 0 (the lightest,
+`DMG_WHITE`) to `0xFFFFFF` and index 3 (the darkest, `DMG_BLACK`) to
+`0x000000` — so the PNG matches what real hardware shows: dark glyphs on a
+bright background.
 
 ### Tile format (verified: DMG is 16 bytes per tile)
 
@@ -135,12 +143,6 @@ GBDK's built-in font ships glyphs as 8-byte 1bpp source, and its font
 runtime expands them into the 16-byte VRAM format at load time — so
 `printf("hi hi")` needs no manual tile conversion.
 
-One display nuance: PyBoy's shade mapping makes shade 0 (the lightest DMG
-shade, i.e. white on real glass) render as `0x000000` in the PNG. So the
-screenshot appears black-background/white-text, while real hardware shows
-the classic white-background/black-text. The pixel *pattern* — what matters
-for validation — is identical.
-
 ## DMG notes
 
 - The ROM is DMG-only: CGB flag `$00` at 0x0143 and no CGB registers in the
@@ -154,6 +156,34 @@ for validation — is identical.
   identity char-to-tile mapping (char `c` -> tile `c`), and tile 0 is blank,
   which is what `cls()` fills the map with.
 - VBlank: `vsync()` (GBDK) handles the STAT bit-3 poll; no manual loop.
+
+## Sound
+
+`src/main.c` drives sound channel 1 (square wave) directly via the APU
+registers — a ~500 Hz Morse keyer tone, sounded only while A is held:
+
+- **Period** `d = 0x6FA` (NR13 = `$FA`, NR14 high bits `0b110`):
+  `131072 / (2048 - d)` Hz, per the Pan docs. (The higher the period value,
+  the higher the frequency.)
+- **Powering the APU**: the sound registers are read-only until NR52 bit 7
+  is set. `tone_on()` writes `NR52 = $80` first, then configures the
+  channel; `tone_off()` writes `NR52 = $00`, which stops the channel
+  immediately and clears its state for the next press.
+- **Trigger**: the channel is enabled by writing NR14 with bit 7 set
+  (`NR14 = $86`); NR52's per-channel "on" bits are read-only. With the
+  length counter disabled (NR14 bit 6 = 0) the tone simply continues until
+  the APU is powered off, so one trigger per key press is enough.
+- **Volume/pan**: NR12 = `$F0` (constant full volume, no envelope),
+  NR51 = `$11` (channel 1 to both speakers), NR50 = `$77` (master volume).
+
+Headless verification with PyBoy (`tools/test_sound.py`):
+
+```sh
+.venv/bin/python tools/test_sound.py   # exits 0 only if all checks pass
+```
+
+Checks: silent with no key held; tone present and ~500 Hz (±5%) while A is
+held; silent again after A is released; tone returns on re-press.
 
 ## Web emulator
 
@@ -192,5 +222,7 @@ This is the fastest way to iterate.
 - **Tiles/images**: `set_bg_tile_data` + `fill_bg_char` (see the `images`
   GBDK example); exported 1bpp 8-byte-per-tile art is fine as *source*,
   GBDK's helpers place it into 16-byte VRAM tiles.
-- **Audio**: NR channels at $FF10-$FF13 (DMG+), or the GBDK sound API
-  (`gbdk/sound.h`).
+- **Audio**: the keyer in `src/main.c` is the reference for the DMG APU
+  power-on/trigger sequence; NR10-NR14 (channel 1) at $FF10-$FF14, master
+  volume/pan at $FF20-$FF21, power at $FF22. The GBDK sound API
+  (`gbdk/sound.h`) is an alternative for simple effects.

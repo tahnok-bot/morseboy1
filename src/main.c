@@ -15,14 +15,17 @@
  *
  *   Reference screen (SCREEN_REF): shows one alphabet letter with its
  *   Morse code beneath it. Left/right cycles through all 26 letters
- *   (hold to keep cycling); B returns to the menu.
+ *   (hold to keep cycling); Start plays the Morse code of the current
+ *   letter (see play_morse()); B returns to the menu.
  *
  *   Quiz screen (SCREEN_QUIZ): placeholder for the "listen quiz" mode —
  *   shows "quiz" for now. B returns to the menu.
  *
  * Morse keyer: holding the A button sounds a ~500 Hz square wave (a
  * classic CW keyer tone); the tone lasts exactly as long as A is held.
- * On the menu, pressing A also opens the selected screen.
+ * On the menu, pressing A also opens the selected screen. On the
+ * reference screen, pressing Start plays the Morse code of the current
+ * letter with play_morse(), blocking the main loop for the duration.
  *
  * Start, B and A navigation actions are debounced: the DMG joypad
  * auto-repeats a held button (33f initial delay, then a 9f cycle), so a
@@ -183,6 +186,37 @@ static void tone_off(void) {
     NR52_REG = TONE_NR52_OFF;  /* APU off: stops channel 1 immediately */
 }
 
+/* --- Morse playback -------------------------------------------------------
+ *
+ * play_morse() sounds a Morse string (dot = '.', dash = '-') on the
+ * keyer tone with classic proportions: a dash is three dot-lengths, and
+ * every element — including the last of the string — is followed by one
+ * dot-length of silence. It is blocking: it waits each element and gap
+ * out in a vsync() loop, so the caller yields the main loop for the
+ * duration of the whole string (up to ~1.2 s for Q, "--.-").
+ *
+ * Speed: one dot-length = TONE_UNIT vblanks, 6 frames, about 100 ms
+ * (~12 WPM) — comfortable for learning.
+ */
+#define TONE_UNIT 6  /* frames (vblanks) per dot-length, ~100 ms */
+
+static void wait_frames(uint8_t n) {
+    while (n > 0) {
+        n--;
+        vsync();
+    }
+}
+
+static void play_morse(const char *code) {
+    while (*code) {
+        tone_on();
+        wait_frames(*code == '-' ? TONE_UNIT * 3 : TONE_UNIT);
+        tone_off();
+        wait_frames(TONE_UNIT);  /* gap after each element */
+        code++;
+    }
+}
+
 void main(void) {
     // Classic DMG green: the console font's glyph pixels use palette
     // index 3, so they render in the darkest shade.
@@ -243,6 +277,13 @@ void main(void) {
                 if (screen == SCREEN_SOS) {
                     screen = SCREEN_MENU;
                     draw_menu(menu_sel);
+                } else if (screen == SCREEN_REF) {
+                    /* Play the Morse code of the current letter. This
+                     * blocks, and play_morse() ends with the APU off,
+                     * so drop the keyer flag: if A is also held, the
+                     * keyer tone simply comes back on next frame. */
+                    play_morse(MORSE[letter]);
+                    tone_playing = 0;
                 }
             }
             start_quiet = 0;

@@ -9,7 +9,12 @@ Boots the ROM, then:
   1. asserts the audio buffer is silent with no key held,
   2. holds button A for ~1.5 s and asserts a tone is present and its
      frequency is near 500 Hz,
-  3. releases A and asserts the audio buffer is silent again.
+  3. releases A and asserts the audio buffer is silent again,
+  4. re-presses A and asserts the tone comes back (re-trigger works),
+  5. navigates Start (SOS -> menu), A (menu -> reference, letter "A"),
+  6. presses Start on the reference screen and asserts the Morse code
+     of "A" (".-", 36 frames) is heard: tone bursts with silent gaps
+     between the elements, then silence after the string finishes.
 
 Exits 0 on success, 1 on failure.
 """
@@ -38,16 +43,19 @@ pb = pyboy.PyBoy(
 
 def collect(frames):
     """Tick `frames` frames and return the mono (left) samples as int8."""
+    return np.concatenate(collect_frames(frames))
+
+
+def collect_frames(frames):
+    """Tick `frames` frames; return one mono (left) int8 array per frame."""
     buf = pb.sound.raw_buffer  # stereo-interleaved int8
-    parts = []
+    out = []
     for _ in range(frames):
         pb.tick(1)
         head = pb.sound.raw_buffer_head
-        parts.append(np.frombuffer(bytes(buf[:head]), dtype=np.int8))
-    if not parts:
-        return np.array([], dtype=np.int8)
-    samples = np.concatenate(parts)
-    return samples[0::2]  # drop the right channel
+        s = np.frombuffer(bytes(buf[:head]), dtype=np.int8)
+        out.append(s[0::2])  # drop the right channel
+    return out
 
 
 def peak(samples):
@@ -105,6 +113,40 @@ pb.tick(3)  # same latency allowance, the other way around
 s_held2 = collect(30)
 p2 = peak(s_held2)
 check("tone again on re-press", p2 > 0, f"peak={p2}")
+
+# 5. Navigate to the reference screen (letter "A" at boot): Start goes
+# SOS -> menu, A goes menu -> reference. A is released right after
+# each press so the keyer tone doesn't mask the checks.
+pb.button_release("A")
+pb.tick(3)
+pb.button_press("START")
+pb.tick(6)
+pb.button_release("START")
+pb.tick(6)
+pb.button_press("A")
+pb.tick(6)
+pb.button_release("A")
+pb.tick(18)  # release latency + A debounce window (12 frames) elapses
+s_ref = collect(10)
+check("silent on reference screen", peak(s_ref) == 0, f"peak={peak(s_ref)}")
+
+# 6. Start plays the Morse of the current letter ("A" -> ".-": 6f dot,
+# 6f gap, 18f dash, 6f gap = 36 frames). Expect tone bursts, silent gap
+# frames, and silence at the end of the window (playback done, APU off).
+pb.button_press("START")
+pb.tick(3)  # press propagation + ROM polling latency
+pb.button_release("START")
+play_frames = collect_frames(45)
+p3 = peak(np.concatenate(play_frames))
+check("tone while Start plays the letter", p3 > 0, f"peak={p3}")
+silent = sum(1 for f in play_frames if f.size and peak(f) == 0)
+check(
+    "gaps between elements (intermittent tone)",
+    silent >= 4,
+    f"{silent} silent frames in 45",
+)
+tail = np.concatenate(play_frames[-3:])
+check("silent after the letter finished", peak(tail) == 0, f"peak={peak(tail)}")
 
 pb.stop()
 print("sound test passed")

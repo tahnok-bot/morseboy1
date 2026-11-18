@@ -89,6 +89,10 @@ static void draw_sos(void) {
     printf("... --- ...");
     gotoxy(5, 8);
     printf("morseboy1");
+    // "press start" is 11 chars: (20 - 11) / 2 = 4 centers it horizontally;
+    // row 11 leaves two blank rows of space below "morseboy1" (row 8).
+    gotoxy(4, 11);
+    printf("press start");
 }
 
 static void draw_menu(uint8_t sel) {

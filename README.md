@@ -11,6 +11,13 @@ drawn with GBDK's built-in 8x8 console font (the stdio `printf` family).
 Holding the A button sounds a ~500 Hz square-wave Morse keyer tone; the
 tone lasts exactly as long as A is held (see [Sound](#sound)).
 
+Start opens a menu listing the two modes — `ref` (A..Z Morse reference)
+and `quiz` (the "listen quiz" mode, a placeholder showing `quiz` for now).
+Up/Down moves the `>` marker, A opens the selected mode, and B goes back
+from a mode to the menu. The start screen is the welcome screen, like in
+old games: it shows once at boot and there is no back from the menu to it
+(see [Screens and controls](#screens-and-controls)).
+
 ## Quick start
 
 Prereqs (all installed on this machine):
@@ -32,6 +39,28 @@ make clean      # remove build/
 
 Open **http://localhost:8080** after `make web`.
 Keys: `Z`/`X` = B/A, `Enter` = Start, `Shift` = Select, arrows = d-pad, `P` = pause.
+
+## Screens and controls
+
+| Screen | Shows | Keys |
+| --- | --- | --- |
+| Start | `s o s` with `... --- ...` | `Start` → menu |
+| Menu | list of `ref` / `quiz`; `>` marks the selection (starts on `ref`) | `Up`/`Down` move, `A` opens the selected mode, `B` does nothing (the welcome screen is one-way) |
+| Reference | one letter A..Z with its Morse code, `n/26` counter | `Left`/`Right` cycle (hold to repeat), `B` → menu |
+| Quiz | `quiz` (placeholder for the listen-quiz mode) | `B` → menu |
+
+Notes:
+
+- The start screen is the welcome/launch screen (old-game style): shown
+  once at boot, entered via `Start` into the menu, with no back navigation
+  from the menu.
+- Holding `A` sounds the Morse keyer tone on every screen; on the menu a
+  fresh press of `A` also opens the selected mode.
+- The menu selection is remembered when you return via `B` (and the
+  reference screen keeps its letter).
+- Navigation presses of Start/B/A are debounced against the DMG joypad's
+  auto-repeat (12-frame release window), the same as the original Start
+  handling.
 
 ## Layout
 

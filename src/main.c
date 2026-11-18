@@ -1,20 +1,34 @@
 /* morseboy1 — minimal Game Boy (DMG) demo built with GBDK-2020.
  *
- * Start screen: shows the letters "s o s" with their Morse code
- * (... --- ...) beneath each, using the built-in 8x8 console font.
- * Press start to enter the reference screen.
+ * Four screens:
  *
- * Reference screen: shows one alphabet letter with its Morse code
- * beneath it. Left/right cycles through all 26 letters (hold to keep
- * cycling); start returns to the start screen.
+ *   SOS welcome screen (SCREEN_SOS): shows the letters "s o s" with
+ *   their Morse code (... --- ...) beneath each, using the built-in
+ *   8x8 console font. It is the launch screen (old-game style): shown
+ *   once at boot, press start to enter the menu. There is no back
+ *   navigation from the menu to this screen.
+ *
+ *   Menu (SCREEN_MENU): a two-item list — "ref" and "quiz" — navigable
+ *   with up/down, the current selection marked with a ">" arrow.
+ *   Pressing A opens the selected screen; B does nothing (the welcome
+ *   screen is one-way).
+ *
+ *   Reference screen (SCREEN_REF): shows one alphabet letter with its
+ *   Morse code beneath it. Left/right cycles through all 26 letters
+ *   (hold to keep cycling); B returns to the menu.
+ *
+ *   Quiz screen (SCREEN_QUIZ): placeholder for the "listen quiz" mode —
+ *   shows "quiz" for now. B returns to the menu.
  *
  * Morse keyer: holding the A button sounds a ~500 Hz square wave (a
  * classic CW keyer tone); the tone lasts exactly as long as A is held.
+ * On the menu, pressing A also opens the selected screen.
  *
- * Start is debounced: the DMG joypad auto-repeats a held button (33f
- * initial delay, then a 9f cycle), so a press edge alone would still
- * toggle rapidly while Start is held. A press is therefore only accepted
- * when the button has been fully released for START_DEBOUNCE frames.
+ * Start, B and A navigation actions are debounced: the DMG joypad
+ * auto-repeats a held button (33f initial delay, then a 9f cycle), so a
+ * press edge alone would still fire rapidly while the button is held.
+ * An action press is therefore only accepted when the button has been
+ * fully released for KEY_DEBOUNCE frames.
  */
 
 #include <gbdk/platform.h>
@@ -53,9 +67,20 @@ static const char *const MORSE[26] = {
 
 /* --- Screens -----------------------------------------------------------
  *
- * Both screens use the same 20x18 character grid layout as the original
- * start screen: row 5 = letters, row 6 = Morse code beneath them.
+ * All screens use the 20x18 character grid of the DMG console.
  */
+#define SCREEN_SOS    0
+#define SCREEN_MENU   1
+#define SCREEN_REF    2
+#define SCREEN_QUIZ   3
+
+/* Menu items, in list order (row = 5 + index). */
+#define MENU_ITEMS    2
+static const char *const MENU_LABELS[MENU_ITEMS] = {
+    "ref",  /* -> reference screen */
+    "quiz", /* -> listen quiz screen */
+};
+
 static void draw_sos(void) {
     cls();
     gotoxy(5, 5);
@@ -64,6 +89,19 @@ static void draw_sos(void) {
     printf("... --- ...");
     gotoxy(5, 8);
     printf("morseboy1");
+}
+
+static void draw_menu(uint8_t sel) {
+    cls();
+    gotoxy(8, 3);
+    printf("menu");
+    // Item text starts at column 7; the selection arrow sits in column 5.
+    gotoxy(7, 5);
+    printf("%s", MENU_LABELS[0]);
+    gotoxy(7, 6);
+    printf("%s", MENU_LABELS[1]);
+    gotoxy(5, (uint8_t)(5 + sel));
+    putchar('>');
 }
 
 static void draw_alphabet(uint8_t idx) {
@@ -80,6 +118,13 @@ static void draw_alphabet(uint8_t idx) {
     printf("%s", code);
     gotoxy(0, 0);
     printf("%d/26", idx + 1);
+}
+
+static void draw_quiz(void) {
+    cls();
+    // "quiz" is 4 chars: (20 - 4) / 2 = 8 centers it horizontally.
+    gotoxy(8, 8);
+    printf("quiz");
 }
 
 /* --- Morse tone (sound channel 1, square wave) ---------------------------
@@ -114,10 +159,10 @@ static void draw_alphabet(uint8_t idx) {
 #define TONE_NR52_ON   0x80   /* NR52: APU power on (bit 7) */
 #define TONE_NR52_OFF  0x00   /* NR52: APU power off */
 
-/* Start debounce: minimum frames the button must read as released before
+/* Key debounce: minimum frames the button must read as released before
  * a press edge is accepted. Must exceed the hardware repeat cycle (9f),
  * whose internal release phase is far shorter. */
-#define START_DEBOUNCE 12
+#define KEY_DEBOUNCE 12
 
 static void tone_on(void) {
     NR52_REG = TONE_NR52_ON;   /* power the APU on; other sound regs are read-only until this */
@@ -150,23 +195,22 @@ void main(void) {
     // putchar maps char c to tile c - 0x20 (verified against the tile
     // map: '1'->17, '/'->15, 'A'->33, 's'->83 ...), so the printable
     // range 0x20..0x7F occupies tiles 0..95 and the space char is the
-    // guaranteed-blank tile 0. Clear the whole map, then place the
-    // start screen on the 20x18 character grid:
-    //   row 5: "s   o   s"   (letters at columns 5, 9, 13)
-    //   row 6: "... --- ..." (each 3-char code centered under its letter)
-    //   row 8: "morseboy1"   (title, centered)
+    // guaranteed-blank tile 0.
     putchar(' ');
     draw_sos();
 
     DISPLAY_ON;
 
-    uint8_t screen = 0;       /* 0 = SOS start screen, 1 = A..Z reference */
-    uint8_t letter = 0;       /* A..Z index on the reference screen */
+    uint8_t screen = SCREEN_SOS;
+    uint8_t menu_sel = 0;      /* menu selection: index into MENU_LABELS */
+    uint8_t letter = 0;        /* A..Z index on the reference screen */
     uint8_t tone_playing = 0;
-    uint8_t jprev = 0;        /* previous frame's joypad, for press edges */
-    uint8_t rep_left = 8;     /* hold-repeat countdowns (frames) for left/right */
+    uint8_t jprev = 0;         /* previous frame's joypad, for press edges */
+    uint8_t rep_left = 8;      /* hold-repeat countdowns (frames) for left/right */
     uint8_t rep_right = 8;
-    uint8_t start_quiet = 0xFF; /* frames since Start last read as released */
+    uint8_t start_quiet = 0xFF;/* frames since Start/B/A last read as released */
+    uint8_t b_quiet = 0xFF;
+    uint8_t a_quiet = 0xFF;
 
     while (1) {
         vsync();
@@ -174,7 +218,7 @@ void main(void) {
         uint8_t pressed = (uint8_t)(j & ~jprev);
         jprev = j;
 
-        /* A: keyer tone, on both screens. */
+        /* A: keyer tone, on every screen (level-based: on while held). */
         if (j & J_A) {
             if (!tone_playing) {
                 tone_on();
@@ -187,18 +231,14 @@ void main(void) {
             }
         }
 
-        /* Start: switch screens. Press edge only, debounced by the
-         * release window: holding Start (including the hardware
-         * auto-repeat) flips the screen exactly once. */
+        /* Start: open the menu from the SOS screen. Press edge only,
+         * debounced by the release window: holding Start (including the
+         * hardware auto-repeat) fires exactly once. */
         if (j & J_START) {
-            if ((pressed & J_START) && start_quiet >= START_DEBOUNCE) {
-                if (screen == 0) {
-                    screen = 1;
-                    letter = 0;
-                    draw_alphabet(letter);
-                } else {
-                    screen = 0;
-                    draw_sos();
+            if ((pressed & J_START) && start_quiet >= KEY_DEBOUNCE) {
+                if (screen == SCREEN_SOS) {
+                    screen = SCREEN_MENU;
+                    draw_menu(menu_sel);
                 }
             }
             start_quiet = 0;
@@ -208,9 +248,54 @@ void main(void) {
             }
         }
 
-        /* Left/right: cycle letters on the reference screen. A fresh
-         * press moves immediately; holding repeats every 8 frames. */
-        if (screen == 1) {
+        /* B: back from a mode to the menu. The SOS screen is the
+         * welcome/launch screen, so B does nothing on the menu.
+         * Debounced like Start. */
+        if (j & J_B) {
+            if ((pressed & J_B) && b_quiet >= KEY_DEBOUNCE) {
+                if (screen == SCREEN_REF || screen == SCREEN_QUIZ) {
+                    screen = SCREEN_MENU;
+                    draw_menu(menu_sel);
+                }
+            }
+            b_quiet = 0;
+        } else {
+            if (b_quiet < 0xFF) {
+                b_quiet++;
+            }
+        }
+
+        /* Menu: up/down move the selection (press edge only — the list
+         * is short, so no hold-repeat), A opens the selected screen. */
+        if (screen == SCREEN_MENU) {
+            if (pressed & J_UP) {
+                menu_sel = (uint8_t)((menu_sel + MENU_ITEMS - 1) % MENU_ITEMS);
+                draw_menu(menu_sel);
+            } else if (pressed & J_DOWN) {
+                menu_sel = (uint8_t)((menu_sel + 1) % MENU_ITEMS);
+                draw_menu(menu_sel);
+            }
+            if ((j & J_A) && (pressed & J_A) && a_quiet >= KEY_DEBOUNCE) {
+                if (menu_sel == 0) {
+                    screen = SCREEN_REF;
+                    draw_alphabet(letter);
+                } else {
+                    screen = SCREEN_QUIZ;
+                    draw_quiz();
+                }
+            }
+        }
+        if (j & J_A) {
+            a_quiet = 0;
+        } else {
+            if (a_quiet < 0xFF) {
+                a_quiet++;
+            }
+        }
+
+        /* Reference screen: left/right cycle letters. A fresh press moves
+         * immediately; holding repeats every 8 frames. */
+        if (screen == SCREEN_REF) {
             if (j & J_LEFT) {
                 if ((pressed & J_LEFT) || rep_left == 0) {
                     letter = (uint8_t)((letter + 25) % 26);

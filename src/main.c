@@ -10,6 +10,11 @@
  *
  * Morse keyer: holding the A button sounds a ~500 Hz square wave (a
  * classic CW keyer tone); the tone lasts exactly as long as A is held.
+ *
+ * Start is debounced: the DMG joypad auto-repeats a held button (33f
+ * initial delay, then a 9f cycle), so a press edge alone would still
+ * toggle rapidly while Start is held. A press is therefore only accepted
+ * when the button has been fully released for START_DEBOUNCE frames.
  */
 
 #include <gbdk/platform.h>
@@ -107,6 +112,11 @@ static void draw_alphabet(uint8_t idx) {
 #define TONE_NR52_ON   0x80   /* NR52: APU power on (bit 7) */
 #define TONE_NR52_OFF  0x00   /* NR52: APU power off */
 
+/* Start debounce: minimum frames the button must read as released before
+ * a press edge is accepted. Must exceed the hardware repeat cycle (9f),
+ * whose internal release phase is far shorter. */
+#define START_DEBOUNCE 12
+
 static void tone_on(void) {
     NR52_REG = TONE_NR52_ON;   /* power the APU on; other sound regs are read-only until this */
     NR10_REG = 0x00;           /* no period sweep */
@@ -153,6 +163,7 @@ void main(void) {
     uint8_t jprev = 0;        /* previous frame's joypad, for press edges */
     uint8_t rep_left = 8;     /* hold-repeat countdowns (frames) for left/right */
     uint8_t rep_right = 8;
+    uint8_t start_quiet = 0xFF; /* frames since Start last read as released */
 
     while (1) {
         vsync();
@@ -173,15 +184,24 @@ void main(void) {
             }
         }
 
-        /* Start: switch screens. */
+        /* Start: switch screens. Press edge only, debounced by the
+         * release window: holding Start (including the hardware
+         * auto-repeat) flips the screen exactly once. */
         if (j & J_START) {
-            if (screen == 0) {
-                screen = 1;
-                letter = 0;
-                draw_alphabet(letter);
-            } else {
-                screen = 0;
-                draw_sos();
+            if ((pressed & J_START) && start_quiet >= START_DEBOUNCE) {
+                if (screen == 0) {
+                    screen = 1;
+                    letter = 0;
+                    draw_alphabet(letter);
+                } else {
+                    screen = 0;
+                    draw_sos();
+                }
+            }
+            start_quiet = 0;
+        } else {
+            if (start_quiet < 0xFF) {
+                start_quiet++;
             }
         }
 

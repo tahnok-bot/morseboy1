@@ -2,6 +2,11 @@
  *
  * Start screen: shows the letters "s o s" with their Morse code
  * (... --- ...) beneath each, using the built-in 8x8 console font.
+ * Press start to enter the reference screen.
+ *
+ * Reference screen: shows one alphabet letter with its Morse code
+ * beneath it. Left/right cycles through all 26 letters (hold to keep
+ * cycling); start returns to the start screen.
  *
  * Morse keyer: holding the A button sounds a ~500 Hz square wave (a
  * classic CW keyer tone); the tone lasts exactly as long as A is held.
@@ -10,6 +15,65 @@
 #include <gbdk/platform.h>
 #include <gbdk/console.h>
 #include <stdio.h>
+
+/* --- International Morse code for A..Z (index 0 = 'A', 25 = 'Z') ------- */
+static const char *const MORSE[26] = {
+    ".-",   /* A */
+    "-...", /* B */
+    "-.-.", /* C */
+    "-..",  /* D */
+    ".",    /* E */
+    "..-.", /* F */
+    "--.",  /* G */
+    "....", /* H */
+    "..",   /* I */
+    ".---", /* J */
+    "-.-",  /* K */
+    ".-..", /* L */
+    "--",   /* M */
+    "-.",   /* N */
+    "---",  /* O */
+    ".--.", /* P */
+    "--.-", /* Q */
+    ".-.",  /* R */
+    "...",  /* S */
+    "-",    /* T */
+    "..-",  /* U */
+    "...-", /* V */
+    ".--",  /* W */
+    "-..-", /* X */
+    "-.--", /* Y */
+    "--..", /* Z */
+};
+
+/* --- Screens -----------------------------------------------------------
+ *
+ * Both screens use the same 20x18 character grid layout as the original
+ * start screen: row 5 = letters, row 6 = Morse code beneath them.
+ */
+static void draw_sos(void) {
+    cls();
+    gotoxy(5, 5);
+    printf("s   o   s");
+    gotoxy(4, 6);
+    printf("... --- ...");
+}
+
+static void draw_alphabet(uint8_t idx) {
+    const char *code = MORSE[idx];
+    uint8_t len = 0;
+    while (code[len]) len++;
+    cls();
+    // Letter on the right-middle column (the 20-column grid has no exact
+    // center; column 10 looks centered for a single glyph).
+    gotoxy(10, 5);
+    putchar('A' + idx);
+    // Code centered under the letter, small position counter top-left.
+    gotoxy((uint8_t)(10 - (len - 1) / 2), 6);
+    printf("%s", code);
+    gotoxy(0, 0);
+    printf("%d/26", idx + 1);
+}
 
 /* --- Morse tone (sound channel 1, square wave) ---------------------------
  *
@@ -70,25 +134,34 @@ void main(void) {
     SCX_REG = 0;
     SCY_REG = 0;
 
-    // First console call lazily loads the 8x8 font into VRAM (tiles
-    // 0..127, identity mapping: char c -> tile c, so the space char is
-    // a guaranteed-blank tile). Clear the whole map, then place the
+    // First console call lazily loads the 8x8 font into VRAM. GBDK's
+    // putchar maps char c to tile c - 0x20 (verified against the tile
+    // map: '1'->17, '/'->15, 'A'->33, 's'->83 ...), so the printable
+    // range 0x20..0x7F occupies tiles 0..95 and the space char is the
+    // guaranteed-blank tile 0. Clear the whole map, then place the
     // start screen on the 20x18 character grid:
     //   row 5: "s   o   s"   (letters at columns 5, 9, 13)
     //   row 6: "... --- ..." (each 3-char code centered under its letter)
     putchar(' ');
-    cls();
-    gotoxy(5, 5);
-    printf("s   o   s");
-    gotoxy(4, 6);
-    printf("... --- ...");
+    draw_sos();
 
     DISPLAY_ON;
 
+    uint8_t screen = 0;       /* 0 = SOS start screen, 1 = A..Z reference */
+    uint8_t letter = 0;       /* A..Z index on the reference screen */
     uint8_t tone_playing = 0;
+    uint8_t jprev = 0;        /* previous frame's joypad, for press edges */
+    uint8_t rep_left = 8;     /* hold-repeat countdowns (frames) for left/right */
+    uint8_t rep_right = 8;
+
     while (1) {
         vsync();
-        if (joypad() & J_A) {
+        uint8_t j = joypad();
+        uint8_t pressed = (uint8_t)(j & ~jprev);
+        jprev = j;
+
+        /* A: keyer tone, on both screens. */
+        if (j & J_A) {
             if (!tone_playing) {
                 tone_on();
                 tone_playing = 1;
@@ -97,6 +170,45 @@ void main(void) {
             if (tone_playing) {
                 tone_off();
                 tone_playing = 0;
+            }
+        }
+
+        /* Start: switch screens. */
+        if (j & J_START) {
+            if (screen == 0) {
+                screen = 1;
+                letter = 0;
+                draw_alphabet(letter);
+            } else {
+                screen = 0;
+                draw_sos();
+            }
+        }
+
+        /* Left/right: cycle letters on the reference screen. A fresh
+         * press moves immediately; holding repeats every 8 frames. */
+        if (screen == 1) {
+            if (j & J_LEFT) {
+                if ((pressed & J_LEFT) || rep_left == 0) {
+                    letter = (uint8_t)((letter + 25) % 26);
+                    draw_alphabet(letter);
+                    rep_left = 8;
+                } else {
+                    rep_left--;
+                }
+            } else {
+                rep_left = 8;
+            }
+            if (j & J_RIGHT) {
+                if ((pressed & J_RIGHT) || rep_right == 0) {
+                    letter = (uint8_t)((letter + 1) % 26);
+                    draw_alphabet(letter);
+                    rep_right = 8;
+                } else {
+                    rep_right--;
+                }
+            } else {
+                rep_right = 8;
             }
         }
     }

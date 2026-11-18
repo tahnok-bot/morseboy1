@@ -69,7 +69,7 @@
       cursor: pointer;
     }
     .pad button:active,
-    .pad button.down {
+    .pad button.pressed {
       color: #e8ebef;
       background: #262b33;
       border-color: #c9a227;
@@ -113,7 +113,7 @@
       cursor: pointer;
     }
     .pills button:active,
-    .pills button.down {
+    .pills button.pressed {
       color: #e8ebef;
       background: #262b33;
       border-color: #c9a227;
@@ -243,13 +243,13 @@
         btn.addEventListener('pointerdown', (e) => {
           e.preventDefault();
           try { btn.setPointerCapture(e.pointerId); } catch { /* no-op */ }
-          btn.classList.add('down');
+          btn.classList.add('pressed');
           fire(true);
         });
         const release = (e) => {
           if (!btn.hasPointerCapture(e.pointerId)) return;
           btn.releasePointerCapture(e.pointerId);
-          btn.classList.remove('down');
+          btn.classList.remove('pressed');
           fire(false);
         };
         btn.addEventListener('pointerup', release);
